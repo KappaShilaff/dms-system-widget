@@ -1,13 +1,12 @@
 {
     "id": "dmsSystemPlugin",
     "name": "DMS System Plugin",
-    "description": "System/process monitor for DMS with CPU, GPU, RAM, swap and network graphs.",
+    "description": "System/process monitor for DMS with CPU, GPU, RAM and swap details.",
     "version": "0.1.0",
+    "license": "MIT",
     "author": "KappaShilaff",
     "type": "widget",
-    "capabilities": ["dankbar-widget", "system-monitor", "process-monitor"],
     "component": "./DmsSystemPlugin.qml",
     "icon": "monitoring",
-    "requires": ["dgop", "python3"],
-    "permissions": ["settings_read", "settings_write", "process", "network"]
+    "requires_dms": ">=1.4.0"
 }

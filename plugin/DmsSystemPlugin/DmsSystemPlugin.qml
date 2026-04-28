@@ -29,12 +29,12 @@ PluginComponent {
     })
 
     Component.onCompleted: {
-        DgopService.addRef(["network", "processes", "cpu", "memory", "system"]);
+        DgopService.addRef(["processes", "cpu", "memory", "system"]);
         refreshCpuFrequencies();
     }
 
     Component.onDestruction: {
-        DgopService.removeRef(["network", "processes", "cpu", "memory", "system"]);
+        DgopService.removeRef(["processes", "cpu", "memory", "system"]);
     }
 
     function formatMem(kb) {
@@ -50,15 +50,8 @@ PluginComponent {
         return (Math.max(0, kb || 0) / (1024 * 1024)).toFixed(0);
     }
 
-    function formatSpeed(bytesPerSec) {
-        const value = Math.max(0, bytesPerSec || 0);
-        if (value < 1024)
-            return value.toFixed(0) + " B";
-        if (value < 1024 * 1024) {
-            const kb = value / 1024;
-            return (kb >= 1000 ? kb.toFixed(0) : kb.toFixed(1)) + " KB";
-        }
-        return (value / (1024 * 1024)).toFixed(1) + " MB";
+    function oneDecimalGb(kb) {
+        return (Math.max(0, kb || 0) / (1024 * 1024)).toFixed(1);
     }
 
     function formatFreq(mhz) {
@@ -102,12 +95,72 @@ PluginComponent {
             cpuFreqProcess.running = true;
     }
 
+    function localPath(url) {
+        const value = String(url || "");
+        return value.startsWith("file://") ? value.slice(7) : value;
+    }
+
+    function pluginPath() {
+        const path = pluginService?.getPluginPath?.(pluginId || "dmsSystemPlugin") || "";
+        return path.length > 0 ? path : localPath(Qt.resolvedUrl("."));
+    }
+
+    function cpuFrequencyHelperPath() {
+        return pluginPath().replace(/\/$/, "") + "/scripts/cpu-frequencies.py";
+    }
+
     function gpuResidentKb() {
         let total = 0;
         const processes = DgopService.allProcesses || [];
         for (const proc of processes)
             total += proc.gpuResidentKB || proc.gpuMemoryKB || 0;
         return total;
+    }
+
+    function gpuMemoryKb() {
+        let total = 0;
+        const processes = DgopService.allProcesses || [];
+        for (const proc of processes)
+            total += proc.gpuMemoryKB || 0;
+        return total;
+    }
+
+    function gpuSharedKb() {
+        let total = 0;
+        const processes = DgopService.allProcesses || [];
+        for (const proc of processes)
+            total += proc.gpuSharedKB || 0;
+        return total;
+    }
+
+    function gpuProcesses(sortKey, ascending) {
+        const processes = (DgopService.allProcesses || []).filter(proc => {
+            return (proc.gpuMemoryKB || 0) > 0 || (proc.gpuSharedKB || 0) > 0 || (proc.gpuResidentKB || 0) > 0;
+        });
+
+        processes.sort((a, b) => {
+            let result = 0;
+            switch (sortKey) {
+            case "name":
+                result = (a.command || "").toLowerCase().localeCompare((b.command || "").toLowerCase());
+                break;
+            case "memory":
+                result = (b.gpuMemoryKB || 0) - (a.gpuMemoryKB || 0);
+                break;
+            case "shared":
+                result = (b.gpuSharedKB || 0) - (a.gpuSharedKB || 0);
+                break;
+            case "resident":
+                result = (b.gpuResidentKB || 0) - (a.gpuResidentKB || 0);
+                break;
+            case "pid":
+                result = (a.pid || 0) - (b.pid || 0);
+                break;
+            }
+            return ascending ? -result : result;
+        });
+
+        return processes;
     }
 
     horizontalBarPill: Component {
@@ -173,7 +226,7 @@ PluginComponent {
                     }
 
                     StyledText {
-                        text: "Niri System"
+                        text: "DMS System"
                         font.pixelSize: Theme.fontSizeLarge
                         font.weight: Font.Bold
                         color: Theme.surfaceText
@@ -215,7 +268,7 @@ PluginComponent {
                     StatCard {
                         Layout.fillWidth: true
                         title: "GPU"
-                        value: root.formatMem(root.gpuResidentKb()).replace(" GB", "")
+                        value: root.oneDecimalGb(root.gpuResidentKb())
                         unit: "GB"
                         active: root.activeDetail === "gpu"
                         accentColor: Theme.primary
@@ -245,7 +298,7 @@ PluginComponent {
                     cpuInfo: root.cpuFreqInfo
                 }
 
-                NetworkDetails {
+                GpuDetails {
                     Layout.fillWidth: true
                     visible: root.activeDetail === "gpu"
                 }
@@ -325,7 +378,7 @@ PluginComponent {
 
     Process {
         id: cpuFreqProcess
-        command: ["python3", Quickshell.env("HOME") + "/.config/DankMaterialShell/plugins/DmsSystemPlugin/scripts/cpu-frequencies.py"]
+        command: ["python3", root.cpuFrequencyHelperPath()]
         running: false
         stdout: SplitParser {
             onRead: line => {
@@ -507,8 +560,8 @@ PluginComponent {
                             anchors.right: parent.right
                             anchors.rightMargin: Theme.spacingS
                             anchors.verticalCenter: parent.verticalCenter
-                            text: root.formatFreq(modelData.mhz)
-                            color: modelData.mhz >= 3000 ? "#ff6b6b" : (modelData.mhz >= 1800 ? "#ffd43b" : Theme.surfaceText)
+                            text: root.formatFreq(modelData.current_mhz || modelData.mhz || 0)
+                            color: (modelData.current_mhz || modelData.mhz || 0) >= 3000 ? "#ff6b6b" : ((modelData.current_mhz || modelData.mhz || 0) >= 1800 ? "#ffd43b" : Theme.surfaceText)
                             font.pixelSize: Theme.fontSizeSmall
                         }
                     }
@@ -517,55 +570,158 @@ PluginComponent {
         }
     }
 
-    component NetworkDetails: Rectangle {
-        height: 190
+    component GpuDetails: Rectangle {
+        id: gpuDetails
+
+        property string sortKey: "resident"
+        property bool sortAscending: false
+
+        function changeSort(key) {
+            if (sortKey === key) {
+                sortAscending = !sortAscending;
+                return;
+            }
+            sortKey = key;
+            sortAscending = key === "name" || key === "pid";
+        }
+
+        height: 260
         radius: Theme.cornerRadius
         color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
         border.width: 1
         border.color: Theme.withAlpha(Theme.primary, 0.2)
 
-        Canvas {
-            id: graph
+        ColumnLayout {
             anchors.fill: parent
             anchors.margins: Theme.spacingM
+            spacing: Theme.spacingS
 
-            onPaint: {
-                const ctx = getContext("2d");
-                ctx.reset();
-                const rx = DgopService.networkHistory.rx || [];
-                const tx = DgopService.networkHistory.tx || [];
-                const all = rx.concat(tx);
-                let maxValue = 1;
-                for (let i = 0; i < all.length; i++)
-                    maxValue = Math.max(maxValue, all[i] || 0);
+            RowLayout {
+                Layout.fillWidth: true
 
-                function draw(values, alpha, widthLine) {
-                    if (!values || values.length < 2)
-                        return;
-                    ctx.beginPath();
-                    for (let i = 0; i < values.length; i++) {
-                        const x = (i / Math.max(1, values.length - 1)) * width;
-                        const y = height - ((values[i] || 0) / maxValue) * height;
-                        if (i === 0)
-                            ctx.moveTo(x, y);
-                        else
-                            ctx.lineTo(x, y);
-                    }
-                    ctx.strokeStyle = Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, alpha);
-                    ctx.lineWidth = widthLine;
-                    ctx.stroke();
+                MetricBox {
+                    Layout.fillWidth: true
+                    title: "Memory"
+                    value: root.formatMem(root.gpuMemoryKb())
                 }
 
-                draw(rx, 0.95, 2.3);
-                draw(tx, 0.45, 1.7);
+                MetricBox {
+                    Layout.fillWidth: true
+                    title: "Shared"
+                    value: root.formatMem(root.gpuSharedKb())
+                }
+
+                MetricBox {
+                    Layout.fillWidth: true
+                    title: "Resident"
+                    value: root.formatMem(root.gpuResidentKb())
+                }
             }
 
-            Connections {
-                target: DgopService
-                function onNetworkRxRateChanged() { graph.requestPaint(); }
-                function onNetworkTxRateChanged() { graph.requestPaint(); }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                radius: Theme.cornerRadius
+                color: Theme.withAlpha(Theme.surfaceVariant, 0.10)
+                clip: true
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 0
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 34
+                        Layout.leftMargin: Theme.spacingS
+                        Layout.rightMargin: Theme.spacingS
+                        spacing: Theme.spacingS
+
+                        GpuHeader {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 190
+                            text: "Name"
+                            sortKey: "name"
+                            currentSort: gpuDetails.sortKey
+                            sortAscending: gpuDetails.sortAscending
+                            alignment: Text.AlignLeft
+                            onClicked: gpuDetails.changeSort(sortKey)
+                        }
+
+                        GpuHeader { text: "Memory"; sortKey: "memory"; currentSort: gpuDetails.sortKey; sortAscending: gpuDetails.sortAscending; onClicked: gpuDetails.changeSort(sortKey) }
+                        GpuHeader { text: "Shared"; sortKey: "shared"; currentSort: gpuDetails.sortKey; sortAscending: gpuDetails.sortAscending; onClicked: gpuDetails.changeSort(sortKey) }
+                        GpuHeader { text: "Resident"; sortKey: "resident"; currentSort: gpuDetails.sortKey; sortAscending: gpuDetails.sortAscending; onClicked: gpuDetails.changeSort(sortKey) }
+                        GpuHeader { text: "PID"; sortKey: "pid"; currentSort: gpuDetails.sortKey; sortAscending: gpuDetails.sortAscending; onClicked: gpuDetails.changeSort(sortKey) }
+                    }
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        model: root.gpuProcesses(gpuDetails.sortKey, gpuDetails.sortAscending)
+
+                        delegate: RowLayout {
+                            required property var modelData
+
+                            width: ListView.view.width
+                            height: 36
+                            spacing: Theme.spacingS
+
+                            StyledText {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 190
+                                Layout.leftMargin: Theme.spacingS
+                                text: modelData.command || "process"
+                                elide: Text.ElideRight
+                                color: Theme.surfaceText
+                                font.pixelSize: Theme.fontSizeSmall
+                            }
+
+                            GpuValue { text: root.formatMem(modelData.gpuMemoryKB || 0) }
+                            GpuValue { text: root.formatMem(modelData.gpuSharedKB || 0) }
+                            GpuValue { text: root.formatMem(modelData.gpuResidentKB || 0) }
+                            GpuValue { text: (modelData.pid || 0).toString() }
+                        }
+                    }
+                }
             }
         }
+    }
+
+    component GpuHeader: Item {
+        property string text: ""
+        property string sortKey: ""
+        property string currentSort: ""
+        property bool sortAscending: false
+        property int alignment: Text.AlignHCenter
+
+        signal clicked
+
+        Layout.preferredWidth: 112
+        Layout.preferredHeight: 34
+
+        StyledText {
+            anchors.fill: parent
+            text: parent.text + (parent.currentSort === parent.sortKey ? (parent.sortAscending ? " ↑" : " ↓") : "")
+            color: parent.currentSort === parent.sortKey ? Theme.primary : Theme.surfaceVariantText
+            font.pixelSize: Theme.fontSizeSmall
+            horizontalAlignment: parent.alignment
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: parent.clicked()
+        }
+    }
+
+    component GpuValue: StyledText {
+        Layout.preferredWidth: 112
+        horizontalAlignment: Text.AlignHCenter
+        color: Theme.surfaceText
+        font.pixelSize: Theme.fontSizeSmall
+        elide: Text.ElideRight
     }
 
     component MetricBox: Rectangle {
