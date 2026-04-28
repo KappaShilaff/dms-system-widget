@@ -1,0 +1,6 @@
+dms-system-plugin packages a system/process widget for DankMaterialShell.
+
+Portions of the QML plugin are derived from DankMaterialShell:
+https://github.com/AvengeMedia/DankMaterialShell
+
+DankMaterialShell is licensed under the MIT License.
