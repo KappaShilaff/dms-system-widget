@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import Quickshell
 import qs.Common
 import qs.Widgets
@@ -277,10 +278,10 @@ Popup {
                         }
                         opacity: modelData.enabled ? 1 : 0.5
 
-                        Row {
-                            anchors.left: parent.left
+                        RowLayout {
+                            anchors.fill: parent
                             anchors.leftMargin: Theme.spacingS
-                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.rightMargin: Theme.spacingS
                             spacing: Theme.spacingS
 
                             DankIcon {
@@ -294,7 +295,7 @@ Popup {
                                         return Theme.error;
                                     return Theme.surfaceText;
                                 }
-                                anchors.verticalCenter: parent.verticalCenter
+                                Layout.alignment: Qt.AlignVCenter
                             }
 
                             StyledText {
@@ -309,7 +310,9 @@ Popup {
                                         return Theme.error;
                                     return Theme.surfaceText;
                                 }
-                                anchors.verticalCenter: parent.verticalCenter
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignVCenter
+                                elide: Text.ElideRight
                             }
                         }
 

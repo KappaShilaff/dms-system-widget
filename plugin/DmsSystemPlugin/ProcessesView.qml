@@ -685,9 +685,8 @@ Item {
                         Layout.minimumWidth: 200
                         height: parent.height
 
-                        Row {
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
+                        RowLayout {
+                            anchors.fill: parent
                             spacing: Theme.spacingS
 
                             DankIcon {
@@ -701,7 +700,7 @@ Item {
                                     return Theme.surfaceText;
                                 }
                                 opacity: 0.8
-                                anchors.verticalCenter: parent.verticalCenter
+                                Layout.alignment: Qt.AlignVCenter
                             }
 
                             StyledText {
@@ -711,8 +710,9 @@ Item {
                                 font.weight: Font.Medium
                                 color: Theme.surfaceText
                                 elide: Text.ElideRight
-                                width: Math.min(implicitWidth, 280)
-                                anchors.verticalCenter: parent.verticalCenter
+                                Layout.fillWidth: true
+                                Layout.maximumWidth: 280
+                                Layout.alignment: Qt.AlignVCenter
                             }
                         }
                     }
@@ -996,7 +996,8 @@ Item {
                         }
                     }
 
-                    Row {
+                    Flow {
+                        width: parent.width
                         spacing: Theme.spacingL
 
                         Row {
