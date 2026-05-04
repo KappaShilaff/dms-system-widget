@@ -20,6 +20,10 @@ PluginComponent {
     property string searchText: ""
     property string expandedPid: ""
     property string processFilter: "all"
+    property var processExtraMetrics: ({})
+    property string processExtraPidArg: ""
+    property bool processExtraRefreshPending: false
+    property var allProcessesWithExtra: []
     property var cpuFreqInfo: ({
         "avg_mhz": 0,
         "max_mhz": 0,
@@ -109,9 +113,44 @@ PluginComponent {
         return pluginPath().replace(/\/$/, "") + "/scripts/cpu-frequencies.py";
     }
 
+    function processExtraHelperPath() {
+        return pluginPath().replace(/\/$/, "") + "/scripts/process-extra-metrics.py";
+    }
+
+    function mergeProcessExtra(processes) {
+        const result = [];
+        const metrics = processExtraMetrics || {};
+        for (const proc of processes || []) {
+            const extra = metrics[(proc.pid || 0).toString()] || {};
+            result.push(Object.assign({}, proc, {
+                "swapKB": extra.swapKB || proc.swapKB || 0,
+                "gpuMemoryKB": extra.gpuMemoryKB || proc.gpuMemoryKB || 0,
+                "gpuResidentKB": extra.gpuResidentKB || proc.gpuResidentKB || 0,
+                "gpuSharedKB": extra.gpuSharedKB || proc.gpuSharedKB || 0
+            }));
+        }
+        return result;
+    }
+
+    function refreshProcessExtraMetrics() {
+        const processes = DgopService.allProcesses || [];
+        allProcessesWithExtra = mergeProcessExtra(processes);
+
+        const pids = processes.map(p => p.pid || 0).filter(pid => pid > 0).join(",");
+        if (pids.length === 0)
+            return;
+
+        processExtraPidArg = pids;
+        if (processExtraProcess.running) {
+            processExtraRefreshPending = true;
+            return;
+        }
+        processExtraProcess.running = true;
+    }
+
     function gpuResidentKb() {
         let total = 0;
-        const processes = DgopService.allProcesses || [];
+        const processes = allProcessesWithExtra || [];
         for (const proc of processes)
             total += proc.gpuResidentKB || proc.gpuMemoryKB || 0;
         return total;
@@ -119,7 +158,7 @@ PluginComponent {
 
     function gpuMemoryKb() {
         let total = 0;
-        const processes = DgopService.allProcesses || [];
+        const processes = allProcessesWithExtra || [];
         for (const proc of processes)
             total += proc.gpuMemoryKB || 0;
         return total;
@@ -127,14 +166,14 @@ PluginComponent {
 
     function gpuSharedKb() {
         let total = 0;
-        const processes = DgopService.allProcesses || [];
+        const processes = allProcessesWithExtra || [];
         for (const proc of processes)
             total += proc.gpuSharedKB || 0;
         return total;
     }
 
     function gpuProcesses(sortKey, ascending) {
-        const processes = (DgopService.allProcesses || []).filter(proc => {
+        const processes = (allProcessesWithExtra || []).filter(proc => {
             return (proc.gpuMemoryKB || 0) > 0 || (proc.gpuSharedKB || 0) > 0 || (proc.gpuResidentKB || 0) > 0;
         });
 
@@ -345,6 +384,7 @@ PluginComponent {
                     ProcessesView {
                         anchors.fill: parent
                         anchors.margins: Theme.spacingS
+                        processes: root.allProcessesWithExtra
                         searchText: root.searchText
                         expandedPid: root.expandedPid
                         processFilter: root.processFilter
@@ -388,6 +428,40 @@ PluginComponent {
                     console.warn("DmsSystemPlugin: failed to parse CPU frequency info", e);
                 }
             }
+        }
+    }
+
+    Process {
+        id: processExtraProcess
+        command: ["python3", root.processExtraHelperPath(), root.processExtraPidArg]
+        running: false
+        onExited: exitCode => {
+            if (exitCode !== 0) {
+                console.warn("DmsSystemPlugin: process extra metrics failed with exit code", exitCode);
+            }
+            if (root.processExtraRefreshPending) {
+                root.processExtraRefreshPending = false;
+                processExtraProcess.running = true;
+            }
+        }
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (text.trim()) {
+                    try {
+                        root.processExtraMetrics = JSON.parse(text.trim());
+                        root.allProcessesWithExtra = root.mergeProcessExtra(DgopService.allProcesses || []);
+                    } catch (e) {
+                        console.warn("DmsSystemPlugin: failed to parse process extra metrics", e);
+                    }
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: DgopService
+        function onAllProcessesChanged() {
+            root.refreshProcessExtraMetrics();
         }
     }
 

@@ -12,6 +12,7 @@ Item {
     property string expandedPid: ""
     property var contextMenu: null
     property string processFilter: "all" // "all", "user", "system"
+    property var processes: []
 
     property int selectedIndex: -1
     property bool keyboardNavigationActive: false
@@ -46,10 +47,10 @@ Item {
     }
 
     readonly property var filteredProcesses: {
-        if (!DgopService.allProcesses || DgopService.allProcesses.length === 0)
+        if (!processes || processes.length === 0)
             return [];
 
-        let procs = DgopService.allProcesses.slice();
+        let procs = processes.slice();
 
         if (processFilter === "user") {
             procs = procs.filter(p => p.username === UserInfoService.username);

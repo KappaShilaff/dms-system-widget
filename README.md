@@ -29,7 +29,7 @@ This repository packages a system monitor as a normal DMS plugin. It does not in
 - Linux desktop running Wayland.
 - DankMaterialShell with plugin support.
 - `dgop` available in `PATH`.
-- `python3` for the CPU frequency helper.
+- `python3` for CPU frequency and per-process extra metric helpers.
 
 The plugin uses DMS primitives such as `Theme`, `DgopService`, `PluginComponent` and shared widgets.
 
@@ -61,7 +61,7 @@ systemctl --user restart dms.service
 
 - The plugin depends on `dgop` for system/process metrics.
 - CPU frequency details are read from `/sys/devices/system/cpu`.
-- GPU memory details use per-process metrics exposed by DMS `DgopService`.
+- GPU memory details read per-process DRM fdinfo metrics through the plugin helper and merge them with `DgopService` process data. The parser supports Intel-style `drm-total/resident/shared-*` counters and AMD `drm-memory-*` counters.
 - The CPU helper is resolved relative to the loaded plugin directory, so custom `DMS_PLUGIN_DIR` installs work.
 - Search in the process list matches the visible process name and PID. It intentionally does not match the full command line, because long VM/QEMU args create noisy false positives.
 
