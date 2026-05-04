@@ -31,7 +31,6 @@ PluginComponent {
         "epp_available": [],
         "cores": []
     })
-
     Component.onCompleted: {
         DgopService.addRef(["processes", "cpu", "memory", "system"]);
         refreshCpuFrequencies();
@@ -575,13 +574,16 @@ PluginComponent {
     component CpuDetails: Rectangle {
         property var cpuInfo: ({})
 
-        height: 190
+        implicitHeight: detailsColumn.implicitHeight + Theme.spacingM * 2
+        Layout.preferredHeight: implicitHeight
         radius: Theme.cornerRadius
         color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
         border.width: 1
         border.color: Theme.withAlpha(Theme.primary, 0.2)
 
         ColumnLayout {
+            id: detailsColumn
+
             anchors.fill: parent
             anchors.margins: Theme.spacingM
             spacing: Theme.spacingS
@@ -811,14 +813,14 @@ PluginComponent {
             spacing: 1
 
             StyledText {
-                text: parent.title
+                text: title
                 color: Theme.primary
                 font.pixelSize: Theme.fontSizeSmall
                 anchors.horizontalCenter: parent.horizontalCenter
             }
 
             StyledText {
-                text: parent.value
+                text: value
                 color: Theme.surfaceText
                 font.pixelSize: Theme.fontSizeMedium
                 anchors.horizontalCenter: parent.horizontalCenter
